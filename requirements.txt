@@ -1,0 +1,10 @@
+# CPU-only torch wheel, avoids pulling in the nvidia-cu12 CUDA packages
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.4.1+cpu
+
+fastapi==0.104.1
+uvicorn==0.24.0
+python-multipart==0.0.6
+python-dotenv==1.0.1
+gliner2[local]
+protobuf

@@ -1,0 +1,68 @@
+{
+  "id": "md-gliner2",
+  "adapter": "elg",
+  "name": "GLiNER2",
+  "description": "Zero-shot entity extraction, text classification, and structured data extraction using GLiNER2",
+  "category": "ml",
+  "source_url": "https://huggingface.co/fastino/gliner2.5-multi-v1",
+
+  "local_url": "http://localhost:9010",
+
+  "supported_types": ["text"],
+  "supported_formats": ["txt"],
+
+  "tasks": {
+    "extract_entities": {
+      "name": "Find named entities",
+      "description": "Extract entities (people, places, organizations, dates, ...) that you define",
+      "behaviour": "one-to-one",
+      "params": {
+        "labels": "person, organization, location, date"
+      },
+      "params_help": {
+        "labels": {
+          "name": "Entity types",
+          "help": "Comma-separated list of entity types to find, e.g. person, organization, location, date",
+          "display": "textinput"
+        }
+      }
+    },
+    "classify_text": {
+      "name": "Classify text",
+      "description": "Assign one or more categories you define to the text",
+      "behaviour": "one-to-one",
+      "autotag": true,
+      "params": {
+        "labels": "positive, negative, neutral",
+        "multi_label": false
+      },
+      "params_help": {
+        "labels": {
+          "name": "Categories",
+          "help": "Comma-separated list of categories to choose from, e.g. sports, politics, finance. Or pick existing tags below to reuse their descriptions and only ever tag with those.",
+          "display": "tagpicker"
+        },
+        "multi_label": {
+          "name": "Allow multiple categories",
+          "help": "Check this if a text can belong to more than one category at once",
+          "display": "checkbox"
+        }
+      }
+    },
+    "extract_data": {
+      "name": "Extract structured data",
+      "description": "Pull specific fields out of the text into structured data",
+      "behaviour": "one-to-one",
+      "params": {
+        "fields": "name, date, amount"
+      },
+      "params_help": {
+        "fields": {
+          "name": "Fields to extract",
+          "help": "Comma-separated list of field names to extract, e.g. invoice_number, date, total_amount",
+          "display": "textinput"
+        }
+      }
+    }
+  }
+}
