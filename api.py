@@ -17,6 +17,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
+import md_storage
+
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
 
 SERVICE_DESCRIPTOR_PATH = Path(os.getenv("SERVICE_DESCRIPTOR_PATH", "./service.json")).resolve()
@@ -53,7 +55,8 @@ def apply_service_descriptor_overrides(descriptor: Dict[str, Any]) -> Dict[str, 
     overrides = {
         "id": SERVICE_ID_OVERRIDE,
         "name": SERVICE_NAME_OVERRIDE,
-        "adapter": SERVICE_ADAPTER_OVERRIDE,
+        # elg_fs in disk mode, elg in HTTP mode, unless SERVICE_ADAPTER says otherwise
+        "adapter": SERVICE_ADAPTER_OVERRIDE or md_storage.storage_adapter(),
         "local_url": SERVICE_LOCAL_URL_OVERRIDE,
     }
     for key, value in overrides.items():
@@ -318,7 +321,7 @@ async def help_markdown():
 @app.post("/process")
 async def process(
     message: UploadFile = File(...),
-    content: UploadFile = File(...),
+    content: Optional[UploadFile] = File(None),
 ):
     try:
         message_chunks = []
@@ -329,7 +332,11 @@ async def process(
             message_chunks.append(chunk)
         request_json = parse_request_payload(b"".join(message_chunks))
 
-        text = (await content.read()).decode("utf-8", errors="replace")
+        if content is not None:
+            text = (await content.read()).decode("utf-8", errors="replace")
+        else:
+            # disk mode: read the file MessyDesk points to
+            text = md_storage.message_input_path(request_json).read_text(encoding="utf-8", errors="replace")
 
         task = request_json.get("task", {}) if isinstance(request_json.get("task"), dict) else {}
         task_id = task.get("id")
@@ -360,9 +367,20 @@ async def process(
                 json.dump({"task": task_id, "params": task_params, "result": result}, handle, ensure_ascii=False, indent=2)
 
         log_event("info", "process_done", task=task_id, output=str(output_path))
+        if content is None:
+            # same label and type the elg adapter gives the HTTP output: <source label>.json, and
+            # ner.json for gliner.ner.json (double extension), json for gliner.json
+            file_type = "ner.json" if output_path.name.endswith(".ner.json") else "json"
+            entry = md_storage.stage_output(
+                request_json, output_path, f"{md_storage.source_label(request_json)}.json", file_type, "json"
+            )
+            shutil.rmtree(output_dir, ignore_errors=True)
+            return md_storage.disk_response([entry])
         return {"response": {"uri": f"/files/{output_id}/{output_path.name}"}}
     except HTTPException:
         raise
+    except md_storage.StorageError as err:
+        raise HTTPException(400, str(err))
     except Exception as err:
         log_event("error", "process_failed", error=str(err))
         raise HTTPException(500, f"Processing failed: {str(err)}")
@@ -370,4 +388,5 @@ async def process(
 
 if __name__ == "__main__":
     import uvicorn
+    log_event("info", "storage_mode", mode=md_storage.describe_mode())
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "9010")))

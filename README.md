@@ -49,3 +49,12 @@ make bash       # shell into the running container
 `/process` writes results under `output/<uuid>/` for `/files` to serve. Since output isn't deleted on
 fetch, a background sweep removes any output directory older than `OUTPUT_MAX_AGE_SECONDS` (default 1
 hour), checked every `OUTPUT_CLEANUP_INTERVAL_SECONDS` (default 5 minutes).
+
+## Storage modes
+
+The service picks its mode at start-up:
+
+- **Disk mode** when `MD_PATH` points at the MessyDesk root (the directory that contains `data/`). The service reads the input from `message.file.path`, writes its output to `MD_PATH/data/<db>/tmp/`, and `/config` reports the `elg_fs` adapter. In a container, mount MessyDesk's `data/` and set `MD_PATH` to the mount's parent directory, for example `-v /path/to/MessyDesk/data:/app/data -e MD_PATH=/app`.
+- **HTTP mode** when `MD_PATH` is unset or has no `data/`. The input comes as the `content` upload, outputs are served from `/files`, and `/config` reports the `elg` adapter. `STORAGE_MODE=http` forces this mode.
+
+A request that uploads `content` is always handled in HTTP mode. `SERVICE_ADAPTER` overrides the adapter that `/config` reports.
