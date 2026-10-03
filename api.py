@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import shutil
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -11,6 +12,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
@@ -86,15 +88,18 @@ def load_help_markdown() -> str:
 
 # Lazily loaded so /health and /config work without pulling in torch/gliner2 on startup.
 _model = None
+# Inference runs in the thread pool, so two first requests could otherwise load the model twice.
+_model_lock = threading.Lock()
 
 
 def get_model():
     global _model
-    if _model is None:
-        from gliner2 import AutoExtractor
-        log_event("info", "model_load_start", model=MODEL_NAME, device=DEVICE)
-        _model = AutoExtractor.from_pretrained(MODEL_NAME, map_location=DEVICE)
-        log_event("info", "model_load_done", model=MODEL_NAME, device=DEVICE)
+    with _model_lock:
+        if _model is None:
+            from gliner2 import AutoExtractor
+            log_event("info", "model_load_start", model=MODEL_NAME, device=DEVICE)
+            _model = AutoExtractor.from_pretrained(MODEL_NAME, map_location=DEVICE)
+            log_event("info", "model_load_done", model=MODEL_NAME, device=DEVICE)
     return _model
 
 
@@ -335,7 +340,8 @@ async def process(
             raise HTTPException(400, f"Unsupported task: {task_id}")
 
         log_event("info", "process_start", task=task_id)
-        result = handler(text, task_params)
+        # Inference is CPU-bound - run it off the event loop so /health and /files stay responsive.
+        result = await run_in_threadpool(handler, text, task_params)
 
         output_id = uuid.uuid4().hex
         output_dir = OUTPUT_DIR / output_id

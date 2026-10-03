@@ -18,7 +18,7 @@ All three are `one-to-one`. See [service.json](service.json) for exact params.
 ## Output shape
 
 `extract_entities` writes span-level results (start/end offsets into the source text) as a double-extension
-`gliner2.ner.json` output file, so MessyDesk's generic file intake detects `type: "ner.json"` and the result
+`gliner.ner.json` output file, so MessyDesk's generic file intake detects `type: "ner.json"` and the result
 is browsable in the Tags view without an `Entity`/`TagLink`. `classify_text` and `extract_data` produce
 whole-document results and are autotagged/stored accordingly. See [help/index.md](help/index.md) for the
 user-facing description.
