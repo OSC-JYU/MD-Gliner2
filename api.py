@@ -228,9 +228,66 @@ def run_extract_data(text: str, params: Dict[str, Any]) -> Dict[str, Any]:
     schema = model.create_schema().structure("data")
     for field in fields:
         schema = schema.field(field, dtype="str", cardinality="optional")
+    options = {"include_confidence": True, "include_spans": True}
     if is_long_text(text):
-        return model.extract_long(text, schema, chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
-    return model.extract(text, schema)
+        result = model.extract_long(text, schema, chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP, **options)
+    else:
+        result = model.extract(text, schema, **options)
+    return {"fields": fields, "records": result.get("data") or []}
+
+
+FIELDS_FORMAT = "messydesk-fields/1"
+
+
+# extract_data's own file type (fields.json, shown as a table by the UI): the fields asked for,
+# and one record per instance the model found, each field {text, confidence, start, end} or null.
+def data_to_fields(result: Dict[str, Any], request_json: Dict[str, Any]) -> Dict[str, Any]:
+    fields = result["fields"]
+    records = []
+    for record in result["records"]:
+        if not isinstance(record, dict):
+            continue
+        row = {}
+        for field in fields:
+            hit = record.get(field)
+            if isinstance(hit, dict) and hit.get("text") is not None:
+                row[field] = {
+                    "text": hit.get("text"),
+                    "confidence": hit.get("confidence"),
+                    "start": hit.get("start"),
+                    "end": hit.get("end"),
+                }
+            elif isinstance(hit, str):
+                row[field] = {"text": hit, "confidence": None, "start": None, "end": None}
+            else:
+                row[field] = None
+        records.append(row)
+    source = request_json.get("file") if isinstance(request_json.get("file"), dict) else {}
+    return {
+        "format": FIELDS_FORMAT,
+        "service": "md-gliner2",
+        "model": MODEL_NAME,
+        "fields": fields,
+        "records": records,
+        "source": {"rid": source.get("@rid"), "label": source.get("label")},
+    }
+
+
+# "Create tags" (autotag) on extract_entities: MessyDesk tags the text with what file_tags
+# lists, so each entity found becomes a tag (its text, not its type), once, at its best confidence.
+def entity_file_tags(regions: Dict[str, Any], source_rid: Optional[str]) -> Dict[str, Any]:
+    if not source_rid:
+        return {}
+    best: Dict[str, Dict[str, Any]] = {}
+    for region in regions.get("rois", {}).values():
+        text = " ".join(str(region.get("text") or "").split())
+        if not text:
+            continue
+        key = text.lower()
+        confidence = region.get("confidence")
+        if key not in best or (confidence or 0) > (best[key]["confidence"] or 0):
+            best[key] = {"label": text, "confidence": confidence}
+    return {source_rid: sorted(best.values(), key=lambda t: -(t["confidence"] or 0))}
 
 
 TASK_HANDLERS = {
@@ -359,8 +416,15 @@ async def process(
         # tasks (classification, structured extraction) stay as plain result JSON.
         if task_id == "extract_entities":
             output_path = output_dir / "gliner.ner.json"
+            regions = entities_to_regions(result)
+            if parse_bool_param(task_params.get("autotag")):
+                regions["file_tags"] = entity_file_tags(regions, (request_json.get("file") or {}).get("@rid"))
             with output_path.open("w", encoding="utf-8") as handle:
-                json.dump(entities_to_regions(result), handle, ensure_ascii=False, indent=2)
+                json.dump(regions, handle, ensure_ascii=False, indent=2)
+        elif task_id == "extract_data":
+            output_path = output_dir / "gliner.fields.json"
+            with output_path.open("w", encoding="utf-8") as handle:
+                json.dump(data_to_fields(result, request_json), handle, ensure_ascii=False, indent=2)
         else:
             output_path = output_dir / "gliner.json"
             with output_path.open("w", encoding="utf-8") as handle:
@@ -368,9 +432,11 @@ async def process(
 
         log_event("info", "process_done", task=task_id, output=str(output_path))
         if content is None:
-            # same label and type the elg adapter gives the HTTP output: <source label>.json, and
-            # ner.json for gliner.ner.json (double extension), json for gliner.json
-            file_type = "ner.json" if output_path.name.endswith(".ner.json") else "json"
+            # same label and type the elg adapter gives the HTTP output: <source label>.json, typed
+            # by the double extension (gliner.ner.json -> ner.json, gliner.fields.json ->
+            # fields.json), json for gliner.json
+            parts = output_path.name.split(".")
+            file_type = ".".join(parts[-2:]) if len(parts) > 2 else "json"
             entry = md_storage.stage_output(
                 request_json, output_path, f"{md_storage.source_label(request_json)}.json", file_type, "json"
             )

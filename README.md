@@ -19,9 +19,14 @@ All three are `one-to-one`. See [service.json](service.json) for exact params.
 
 `extract_entities` writes span-level results (start/end offsets into the source text) as a double-extension
 `gliner.ner.json` output file, so MessyDesk's generic file intake detects `type: "ner.json"` and the result
-is browsable in the Tags view without an `Entity`/`TagLink`. `classify_text` and `extract_data` produce
-whole-document results and are autotagged/stored accordingly. See [help/index.md](help/index.md) for the
-user-facing description.
+is browsable in the Tags view without an `Entity`/`TagLink`. `extract_data` writes
+`gliner.fields.json` (type `fields.json`, format `messydesk-fields/1`): the fields asked for and a
+record per instance found, each value `{text, confidence, start, end}` or `null`; the UI shows it
+as a table. `classify_text` produces plain result JSON (`gliner.json`, used for autotagging).
+
+`extract_entities` with `autotag` (Create tags) also writes `file_tags`: each entity text once, at
+its best confidence, for the source file. MessyDesk tags the text with them. See
+[help/index.md](help/index.md) for the user-facing description.
 
 ## Local development
 
@@ -35,11 +40,16 @@ python api.py            # listens on :9010
 Note: changes to `api.py` require restarting the process (no autoreload) before they take effect.
 Set `DEVICE=cuda` (or `mps`) to run the model on GPU instead of CPU.
 
-## Docker
+## Container
+
+The model (`GLINER_MODEL`, default `fastino/gliner2.5-multi-v1`) is downloaded into the image at
+build time and the service runs with `HF_HUB_OFFLINE=1`: it starts without network access, and
+every container of a version runs the same model. The image is about 2.5 GB.
 
 ```
-make build
-make start     # runs on :9010, MD_URL points back at the MessyDesk backend
+make build     # podman by default; CONTAINER_RUNTIME=docker for Docker
+make test      # the tests, in the image, with the real model
+make start     # runs on :9010
 make restart    # after code changes
 make bash       # shell into the running container
 ```

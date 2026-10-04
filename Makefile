@@ -1,38 +1,37 @@
-IMAGES := $(shell docker images -f "dangling=true" -q)
-CONTAINERS := $(shell docker ps -a -q -f status=exited)
-VERSION := 0.1
+CONTAINER_RUNTIME ?= podman
+VERSION := 0.2
 REPOSITORY := localhost
 IMAGE := md-gliner2
+LOCAL_IMAGE := $(REPOSITORY)/messydesk/$(IMAGE):$(VERSION)
 
 ifneq (,$(wildcard .env))
     include .env
     export
 endif
 
-clean:
-	docker rm -f $(CONTAINERS)
-	docker rmi -f $(IMAGES)
-
+# The model is downloaded into the image at build time (a few minutes the first time).
 build:
-	docker build -t $(REPOSITORY)/messydesk/$(IMAGE):$(VERSION) .
+	$(CONTAINER_RUNTIME) build -t $(LOCAL_IMAGE) .
 
 start:
-	docker run -d --name $(IMAGE) \
+	$(CONTAINER_RUNTIME) run -d --name $(IMAGE) \
 		-p 9010:9010 \
 		--replace \
-		-e MD_URL=http://host.containers.internal:8200 \
 		-e DEVICE=cpu \
 		--restart unless-stopped \
-		$(REPOSITORY)/messydesk/$(IMAGE):$(VERSION)
+		$(LOCAL_IMAGE)
 
 stop:
-	docker stop $(IMAGE)
-	docker rm $(IMAGE)
+	-$(CONTAINER_RUNTIME) stop $(IMAGE)
+	-$(CONTAINER_RUNTIME) rm $(IMAGE)
 
-restart:
-	docker stop $(IMAGE)
-	docker rm $(IMAGE)
-	$(MAKE) start
+restart: stop start
 
 bash:
-	docker exec -it $(IMAGE) bash
+	$(CONTAINER_RUNTIME) exec -it $(IMAGE) bash
+
+# The tests run in the image with the baked-in model (HF_HUB_OFFLINE: it is never downloaded).
+test: build
+	$(CONTAINER_RUNTIME) run --rm -e HOME=/tmp -e PYTHONUSERBASE=/tmp/pyuser \
+		-v $(CURDIR)/tests:/app/tests:ro,Z $(LOCAL_IMAGE) \
+		sh -c "pip install -q --user pytest && python -m pytest -q -p no:cacheprovider tests"

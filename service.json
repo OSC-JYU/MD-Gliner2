@@ -5,25 +5,33 @@
   "description": "Zero-shot entity extraction, text classification, and structured data extraction using GLiNER2",
   "category": "ml",
   "source_url": "https://huggingface.co/fastino/gliner2.5-multi-v1",
-
   "local_url": "http://localhost:9010",
-
-  "supported_types": ["text"],
-  "supported_formats": ["txt"],
-
+  "supported_types": [
+    "text"
+  ],
+  "supported_formats": [
+    "txt"
+  ],
   "tasks": {
     "extract_entities": {
       "name": "Find named entities",
       "description": "Extract entities (people, places, organizations, dates, ...) that you define",
       "behaviour": "one-to-one",
       "params": {
-        "labels": "person, organization, location, date"
+        "labels": "person, organization, location, date",
+        "autotag": false
       },
       "params_help": {
         "labels": {
           "name": "Entity types",
           "help": "Comma-separated list of entity types to find, e.g. person, organization, location, date",
           "display": "textinput"
+        },
+        "autotag": {
+          "name": "Create tags",
+          "display": "checkbox",
+          "default": false,
+          "help": "If checked, also tags the text with each entity found (e.g. Helsinki, Johan Virtanen), so files can be found and filtered by them. The entities are always browsable in the Tags view either way."
         }
       }
     },
@@ -51,7 +59,7 @@
     },
     "extract_data": {
       "name": "Extract structured data",
-      "description": "Pull specific fields out of the text into structured data",
+      "description": "Pull the fields you name out of the text, e.g. invoice number, date and amount; shown as a table with one row per record found",
       "behaviour": "one-to-one",
       "params": {
         "fields": "name, date, amount"
